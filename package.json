@@ -1,9 +1,1 @@
-{
-  "name": "social-fetch-vercel",
-  "version": "1.0.0",
-  "private": true,
-  "description": "社交平台作品数据代理（抖音/小红书 a_bogus / x-s 签名），部署到 Vercel 供网页工作台调用",
-  "scripts": {
-    "start": "vercel dev"
-  }
-}
+{"name": "social-fetch", "version": "1.0.0", "private": true, "description": "社交平台作品数据代理（抖音/小红书 a_bogus / x-s 签名），部署到 Zeabur 供网页工作台调用", "scripts": {"start": "node index.js"}}
