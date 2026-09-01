@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "functions": {
+    "api/social-fetch.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60
+    }
+  }
+}
