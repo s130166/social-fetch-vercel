@@ -60,20 +60,41 @@ async function loadAcrawler() {
   if (_acrawlerCtx) return _acrawlerCtx;
   const htmlRes = await httpGet('https://www.douyin.com/', { 'User-Agent': UA });
   const html = htmlRes.text;
+
+  // 策略 1：尝试从内联 <script> 提取并执行（2026+ 抖音改版后 acrawler 不再是外部 js 文件）
+  const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>\s*$/);
+  let win;
+  if (scriptMatch && scriptMatch[1].includes('byted_acrawler')) {
+    const inlineScript = scriptMatch[1];
+    win = makeWindowShim();
+    try {
+      vm.runInContext(inlineScript, vm.createContext(win), { filename: 'douyin-homepage-inline.js' });
+      if (win.byted_acrawler && typeof win.byted_acrawler.sign === 'function') {
+        _acrawlerCtx = win;
+        return win;
+      }
+    } catch (e) {
+      // 内联执行失败，降级到策略 2
+      console.error('[signers] 内联脚本执行失败，尝试外部脚本:', e.message);
+    }
+  }
+
+  // 策略 2：兼容旧版——查找外部 acrawler .js 文件
   const m = html.match(/src=["']([^"']*acrawler[^"']*\.js)["']/);
   let scriptUrl = m && m[1];
-  if (!scriptUrl) throw new Error('无法从抖音首页提取 acrawler 签名脚本地址（首页结构可能已变）');
-  if (scriptUrl.startsWith('//')) scriptUrl = 'https:' + scriptUrl;
-  if (scriptUrl.startsWith('/')) scriptUrl = 'https://www.douyin.com' + scriptUrl;
-  const scriptSrcRes = await httpGet(scriptUrl, { 'User-Agent': UA });
-  const scriptSrc = scriptSrcRes.text;
-  const win = makeWindowShim();
-  vm.runInContext(scriptSrc, vm.createContext(win), { filename: 'acrawler.js' });
-  if (!win.byted_acrawler || typeof win.byted_acrawler.sign !== 'function') {
-    throw new Error('签名脚本已加载，但未暴露 byted_acrawler.sign 方法（脚本版本可能已变）');
+  if (scriptUrl) {
+    if (scriptUrl.startsWith('//')) scriptUrl = 'https:' + scriptUrl;
+    if (scriptUrl.startsWith('/')) scriptUrl = 'https://www.douyin.com' + scriptUrl;
+    const scriptSrcRes = await httpGet(scriptUrl, { 'User-Agent': UA });
+    win = win || makeWindowShim();
+    vm.runInContext(scriptSrcRes.text, vm.createContext(win), { filename: 'acrawler.js' });
+    if (win.byted_acrawler && typeof win.byted_acrawler.sign === 'function') {
+      _acrawlerCtx = win;
+      return win;
+    }
   }
-  _acrawlerCtx = win;
-  return win;
+
+  throw new Error('无法加载抖音 a_bogus 签名器（首页内联脚本和外部脚本均失败）。可能原因：JSVM 字节码依赖缺失的浏览器 API / 抖音再次改版签名架构。');
 }
 
 /**

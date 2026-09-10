@@ -1,0 +1,17 @@
+node_modules/
+*.log
+*.txt
+*.bat
+*.png
+id_ed25519*
+dy-cookie.txt
+server.log
+tunnel*.log
+sf.log
+check-*.js
+debug-*.js
+probe-*.js
+test-*.js
+verify-*.js
+cookie-helper.html
+sign_page_test.html

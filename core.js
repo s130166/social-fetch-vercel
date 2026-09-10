@@ -5,7 +5,8 @@
  * 归一化作品结构（与网页工作台 SocialWorkItem 对齐）：
  *   { workId, title, publishTime, tags:[], isHot, interactRate, play, like, comment, collect, repost }
  */
-const { genABogus, genXs, genXt, UA, XHS_UA } = require('./signers');
+const { genXs, genXt, XHS_UA } = require('./signers');
+const { getDouyinBrowserRequest, UA } = require('./signers-playwright');
 const { httpGet } = require('./httpHelper');
 
 /* ----------------------------- 工具 ----------------------------- */
@@ -50,15 +51,27 @@ async function fetchDouyin(input) {
   if (!secUid) throw new Error('无法解析抖音博主 sec_uid（主页结构可能变化，或链接无效）');
 
   const base = `aid=6383&sec_user_id=${encodeURIComponent(secUid)}&count=20&max_cursor=0`;
-  const aBogus = await genABogus(base);
-  const api = `https://www.douyin.com/aweme/v1/web/aweme/post/?${base}&a_bogus=${encodeURIComponent(aBogus)}`;
-  const res = await httpGet(api, {
-    'User-Agent': UA, Referer: 'https://www.douyin.com/', cookie: input.cookie || '',
-  });
-  if (res.status !== 200) throw new Error(`抖音接口返回 ${res.status}（可能需登录 cookie 或签名失效）`);
-  const data = res.json();
+
+  // 关键：签名 + 同源请求均在真实浏览器页面内完成（Playwright Chromium，住宅 IP）。
+  // 不能用 Node httpGet——抖音会按 TLS 指纹风控静默返回 200+空 body。
+  // input.a_bogus 由 /sign-page 浏览器签名传入时可复用；否则页面内重新签名。
+  const requestFn = await getDouyinBrowserRequest();
+  const out = await requestFn({ base, cookie: input.cookie || '', aBogus: input.a_bogus || '' });
+  if (out.error) throw new Error('浏览器内签名/请求失败：' + out.error);
+  if (out.status !== 200) {
+    // 诊断：打印状态 + 原始响应前 500 字符，帮助区分「风控墙/设备绑定/签名失效」
+    console.error('[fetchDouyin] status=' + out.status + ' | cookie_len=' + (input.cookie || '').length + ' | raw=' + (out.text || '').slice(0, 500));
+    throw new Error(`抖音接口返回 ${out.status}（可能需登录 cookie 或签名失效）`);
+  }
+
+  let data;
+  try { data = JSON.parse(out.text); } catch (e) { data = null; }
   const list = (data && data.aweme_list) || [];
-  if (!list.length) throw new Error('抖音返回作品列表为空（账号可能无公开作品，或需登录态）');
+  if (!list.length) {
+    // 诊断：打印原始响应（状态/片段），帮助判断是「需登录」还是「签名/风控被拦」
+    console.error('[fetchDouyin] empty aweme_list | status=' + out.status + ' | cookie_len=' + (input.cookie || '').length + ' | raw=' + (out.text || '').slice(0, 600));
+    throw new Error('抖音返回作品列表为空（账号可能无公开作品，或需登录态）');
+  }
 
   const works = list.map((a, i) => {
     const s = a.statistics || {};
